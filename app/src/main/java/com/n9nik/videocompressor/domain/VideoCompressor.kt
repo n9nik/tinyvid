@@ -14,6 +14,7 @@ import androidx.media3.transformer.EditedMediaItem
 import androidx.media3.transformer.Effects
 import androidx.media3.transformer.ExportException
 import androidx.media3.transformer.ExportResult
+import androidx.media3.transformer.ProgressHolder
 import androidx.media3.transformer.Transformer
 import androidx.media3.transformer.VideoEncoderSettings
 import kotlinx.coroutines.CancellationException
@@ -165,7 +166,7 @@ object VideoCompressor {
             // onProgress is marshalled to the main thread for Compose state safety.
             val mainHandler = Handler(Looper.getMainLooper())
             Thread {
-                val holder = Transformer.ProgressHolder()
+                val holder = ProgressHolder()
                 try {
                     while (cont.isActive) {
                         val state = transformer?.getProgress(holder)
