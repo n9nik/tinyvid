@@ -158,28 +158,39 @@ object VideoCompressor {
             if (outputFile.exists()) outputFile.delete()
             transformer.start(editedMediaItem, outputFile.absolutePath)
 
-            cont.invokeOnCancellation {
-                try { transformer?.cancel() } catch (_: Exception) { }
-            }
-
-            // Progress polling on a background thread; listener resumes the coroutine.
-            // onProgress is marshalled to the main thread for Compose state safety.
+            // Progress polling MUST run on the transformer's application thread (here: main).
+            // Transformer.getProgress()/cancel() throw IllegalStateException("Transformer is
+            // accessed on the wrong thread.") on any other thread, and an uncaught throw on a
+            // raw background thread kills the whole app process. getProgress() is cheap, so a
+            // 400ms main-thread poll is fine. onProgress is therefore already on the main
+            // thread, which Compose state writes require.
             val mainHandler = Handler(Looper.getMainLooper())
-            Thread {
-                val holder = ProgressHolder()
-                try {
-                    while (cont.isActive) {
+            val holder = ProgressHolder()
+            val pollRunnable = object : Runnable {
+                override fun run() {
+                    if (!cont.isActive) return
+                    try {
                         val state = transformer?.getProgress(holder)
                             ?: Transformer.PROGRESS_STATE_UNAVAILABLE
                         if (state == Transformer.PROGRESS_STATE_AVAILABLE) {
-                            val pct = holder.progress.coerceIn(0, 100)
-                            mainHandler.post { if (cont.isActive) onProgress(pct) }
+                            onProgress(holder.progress.coerceIn(0, 100))
                         }
-                        if (state == Transformer.PROGRESS_STATE_AVAILABLE && holder.progress >= 100) break
-                        Thread.sleep(400)
+                        if (state == Transformer.PROGRESS_STATE_AVAILABLE && holder.progress >= 100) return
+                    } catch (_: Exception) {
+                        // Never let polling kill the app; completion/error arrive via the listener.
                     }
-                } catch (_: InterruptedException) { }
-            }.apply { isDaemon = true; start() }
+                    if (cont.isActive) mainHandler.postDelayed(this, 400)
+                }
+            }
+            mainHandler.post(pollRunnable)
+
+            cont.invokeOnCancellation {
+                mainHandler.removeCallbacks(pollRunnable)
+                // cancel() is also thread-confined: post it to the application thread.
+                mainHandler.post {
+                    try { transformer?.cancel() } catch (_: Exception) { }
+                }
+            }
         }
     }
 
