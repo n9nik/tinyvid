@@ -119,7 +119,6 @@ object VideoCompressor {
             var transformer: Transformer? = null
             val listener = object : Transformer.Listener {
                 override fun onCompleted(composition: Composition, result: ExportResult) {
-                    transformer?.release()
                     if (cont.isActive) cont.resume(outputFile)
                 }
 
@@ -128,7 +127,6 @@ object VideoCompressor {
                     result: ExportResult,
                     exception: ExportException
                 ) {
-                    transformer?.release()
                     if (cont.isActive) cont.resumeWithException(exception)
                 }
             }
@@ -161,7 +159,6 @@ object VideoCompressor {
 
             cont.invokeOnCancellation {
                 try { transformer?.cancel() } catch (_: Exception) { }
-                try { transformer?.release() } catch (_: Exception) { }
             }
 
             // Progress polling on a background thread; listener resumes the coroutine.
@@ -171,7 +168,7 @@ object VideoCompressor {
                 val holder = Transformer.ProgressHolder()
                 try {
                     while (cont.isActive) {
-                        val state = transformer?.progress(holder)
+                        val state = transformer?.getProgress(holder)
                             ?: Transformer.PROGRESS_STATE_UNAVAILABLE
                         if (state == Transformer.PROGRESS_STATE_AVAILABLE) {
                             val pct = holder.progress.coerceIn(0, 100)
